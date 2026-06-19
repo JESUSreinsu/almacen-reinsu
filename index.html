@@ -221,7 +221,7 @@ async function init() {
 async function syncData() {
   setSync('s', 'Sincronizando...');
   try {
-    const res = await fetch(SCRIPT_URL + '?action=getStock');
+    const res = await fetch(SCRIPT_URL + '?action=getStock', {redirect:'follow'});
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     STOCK = data.stock || {};
