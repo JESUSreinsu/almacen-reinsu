@@ -137,6 +137,7 @@ td{padding:8px 12px;font-size:13px;vertical-align:middle}
       <div class="sync"><span class="dot" id="sdot"></span><span id="slbl">Conectando...</span></div>
       <span style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:10px;padding:3px 10px;font-size:11px;cursor:pointer" onclick="openUser()">👤 <span id="uname">—</span></span>
       <button class="btn" onclick="syncData()">↻ Sincronizar</button>
+      <button class="btn" onclick="openNuevoArt()">+ Nuevo artículo</button>
       <button class="btn" onclick="window.print()">🖨️ Imprimir</button>
     </div>
   </div>
@@ -169,6 +170,24 @@ td{padding:8px 12px;font-size:13px;vertical-align:middle}
       <tbody id="tbody"></tbody>
     </table>
     <div class="empty" id="empty" style="display:none"><div class="ic">📦</div><p>Sin resultados. Busca un artículo arriba.</p></div>
+  </div>
+</div>
+
+<!-- NUEVO ARTÍCULO -->
+<div class="ov" id="nuevoov">
+  <div class="mod" style="width:420px">
+    <div class="mh"><h3>+ Nuevo artículo</h3><button class="mc" onclick="closeNuevoArt()">✕</button></div>
+    <div class="mb" style="padding:20px">
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:12px;font-weight:700;color:var(--soft);margin-bottom:5px;text-transform:uppercase">Código</label>
+        <input type="text" id="nuevo-cod" placeholder="Ej: BORD0108 o 0160812161000" style="width:100%;border:2px solid var(--border);border-radius:6px;padding:9px 12px;font-size:14px;outline:none">
+      </div>
+      <div style="margin-bottom:20px">
+        <label style="display:block;font-size:12px;font-weight:700;color:var(--soft);margin-bottom:5px;text-transform:uppercase">Descripción</label>
+        <input type="text" id="nuevo-desc" placeholder="Ej: RODILLO PINTURA 23CM" style="width:100%;border:2px solid var(--border);border-radius:6px;padding:9px 12px;font-size:14px;outline:none">
+      </div>
+      <button onclick="guardarNuevoArt()" style="width:100%;background:var(--navy2);color:#fff;border:none;border-radius:6px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">Añadir al catálogo</button>
+    </div>
   </div>
 </div>
 
@@ -238,7 +257,10 @@ async function syncData() {
   }
 }
 
-async function saveMovement(mov, stockActual) {
+async function saveMovement(mov, stockActual, isDelete=false) {
+  if (isDelete) {
+    return true;
+  }
   try {
     const res = await fetch(SCRIPT_URL, {
       method: 'POST',
@@ -502,18 +524,63 @@ function srt(k){skey.d=skey.k===k?skey.d*-1:(k==='m'?-1:1);skey.k=k;document.que
 function setF(f,el){filt=f;document.querySelectorAll('.ft').forEach(t=>t.classList.remove('on'));el.classList.add('on');render();}
 
 // ── HISTORIAL ─────────────────────────────────────────────────────
+// ── NUEVO ARTÍCULO ───────────────────────────────────────────────
+function openNuevoArt(){
+  document.getElementById('nuevoov').classList.add('on');
+  setTimeout(()=>document.getElementById('nuevo-cod').focus(),80);
+}
+function closeNuevoArt(){ document.getElementById('nuevoov').classList.remove('on'); }
+document.getElementById('nuevoov').addEventListener('click',e=>{if(e.target===e.currentTarget)closeNuevoArt();});
+
+function guardarNuevoArt(){
+  const cod  = document.getElementById('nuevo-cod').value.trim();
+  const desc = document.getElementById('nuevo-desc').value.trim();
+  if (!cod)  { toast('⚠️ Introduce el código'); return; }
+  if (!desc) { toast('⚠️ Introduce la descripción'); return; }
+  if (IDX[cod]) { toast('⚠️ Ese código ya existe en el catálogo'); return; }
+  const nuevo = {c: cod, d: desc};
+  CATALOG.push(nuevo);
+  IDX[cod] = nuevo;
+  document.getElementById('nuevo-cod').value  = '';
+  document.getElementById('nuevo-desc').value = '';
+  closeNuevoArt();
+  render();
+  toast(`✅ Artículo ${cod} añadido al catálogo`);
+}
+
+// ── BORRAR MOVIMIENTO ─────────────────────────────────────────────
+async function borrarMov(cod, idx2){
+  if (!confirm('¿Borrar este movimiento? También debes borrarlo en Google Sheets.')) return;
+  const sd = STOCK[cod]; if (!sd) return;
+  // Remove from local STOCK
+  const realIdx = sd.movs.length - 1 - idx2;
+  const mov = sd.movs[realIdx];
+  sd.movs.splice(realIdx, 1);
+  // Recalculate stock
+  sd.stock = 0;
+  sd.movs.forEach(m => { sd.stock += m.tipo==='entrada' ? m.qty : -m.qty; });
+  sd.stock = Math.round(sd.stock * 1000) / 1000;
+  if (sd.movs.length === 0) delete STOCK[cod];
+  // Save updated stock
+  await saveMovement(null, null, true);
+  render();
+  oh(cod);
+  toast('🗑️ Movimiento borrado localmente. Bórralo también en Google Sheets.');
+}
+
 function oh(cod) {
   const sd=STOCK[cod]; const it=IDX[cod]||{c:cod,d:(sd||{}).d||cod};
   document.getElementById('htitle').textContent=`📋 Historial · ${cod}`;
   document.getElementById('hcard').innerHTML=`<div class="k">${it.c}</div><div class="n">${it.d}</div><div class="s">Stock actual: <strong>${sd?sd.stock:0}</strong></div>`;
   const movs=sd&&sd.movs?[...sd.movs].reverse():[];
   document.getElementById('hlist').innerHTML=movs.length
-    ?movs.map(m=>`<div class="hi">
+    ?movs.map((m,i)=>`<div class="hi">
         <div class="hii">
           <div class="hit ${m.tipo==='entrada'?'e':'c'}">${m.tipo==='entrada'?'ENTRADA':'CONSUMO'}</div>
           <div class="him">${m.tipo==='entrada'?`Pedido: ${fd(m.date1)} · Recep.: ${fd(m.date2)}`:`Fecha: ${fd(m.date1)}`}${m.sot?' · Sótano '+m.sot:''}${m.dst?' · Destino '+m.dst:''}${m.notes?' · '+m.notes:''}<br>Usuario: <strong>${m.user||'—'}</strong></div>
         </div>
         <span class="hiq ${m.tipo==='entrada'?'e':'c'}">${m.tipo==='entrada'?'+':'−'}${m.qty}</span>
+        <button onclick="borrarMov('${cod}',${i})" style="background:#fdf0ee;color:#c0392b;border:1px solid #e57373;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;margin-left:6px;flex-shrink:0">🗑️</button>
       </div>`).join('')
     :'<div class="aempty">Sin movimientos</div>';
   document.getElementById('hov').classList.add('on');
